@@ -92,6 +92,31 @@ def get_departments():
         'data': {'departments': data}
     })
 
+# get doctors by department
+@patient_bp.route('/departments/<int:dept_id>/doctors', methods=['GET'])
+@patient_or_admin_required
+def get_doctors_by_department(dept_id):
+    """Get all doctors in a specific department"""
+    department = Department.query.get(dept_id)
+    if not department or not department.is_active:
+        return jsonify({'success': False, 'message': 'Department not found'}), 404
+    
+    # Get doctors with matching specialization
+    doctors = Doctor.query.filter_by(
+        specialization=department.name,
+        is_active=True
+    ).all()
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'doctors': [d.to_dict() for d in doctors],
+            'department': department.to_dict()
+        }
+    })
+
+# get available slots for a doctor)
+
 # get available slots for a doctor
 @patient_bp.route('/available-slots', methods=['GET'])
 @patient_or_admin_required
