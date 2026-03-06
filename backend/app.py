@@ -11,6 +11,7 @@ import os
 
 load_dotenv()
 
+# app = Flask(__name__, static_folder='../frontend', static_url_path='')
 app = Flask(__name__, static_folder='../frontend', static_url_path='/static')
 app.config.from_object(Config)
 
@@ -21,12 +22,21 @@ mail = Mail(app)
 jwt = JWTManager(app)
 
 # redis cache connection
-cache = redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
-app.config['CACHE'] = cache
+try:
+    cache = redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
+    cache.ping()
+    app.config['CACHE'] = cache
+    print("✓ Redis connected")
+except:
+    app.config['CACHE'] = None
+    print("⚠ Redis not available - caching disabled")
 
 # register blueprints
-from models import *
-from routes import *
+from models import User, Doctor, Patient, Appointment, Treatment, DoctorAvailability, Department
+from routes.auth import auth_bp
+from routes.admin import admin_bp
+from routes.doctor import doctor_bp
+from routes.patient import patient_bp
 
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(admin_bp, url_prefix='/api/admin')
@@ -36,21 +46,25 @@ app.register_blueprint(patient_bp, url_prefix='/api/patient')
 # serve frontend
 @app.route('/')
 def home():
-    return send_from_directory('../frontend', 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/js/<path:filename>')
+def serve_js(filename):
+    return send_from_directory(os.path.join(app.static_folder, 'js'), filename)
 
 @app.route('/<path:path>')
-def serve_frontend(path):
-    frontend_path = os.path.join('../frontend', path)
-    if os.path.exists(frontend_path) and os.path.isfile(frontend_path):
-        return send_from_directory('../frontend', path)
-    return send_from_directory('../frontend', 'index.html')
+def serve_static(path):
+    static_file = os.path.join(app.static_folder, path)
+    if os.path.exists(static_file) and os.path.isfile(static_file):
+        return send_from_directory(app.static_folder, path)
+    return send_from_directory(app.static_folder, 'index.html')
 
 # error handlers
 @app.errorhandler(404)
 def not_found(error):
     if request.path.startswith('/api/'):
         return jsonify({'success': False, 'message': 'Endpoint not found'}), 404
-    return send_from_directory('../frontend', 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
 
 @app.errorhandler(500)
 def internal_error(error):
@@ -60,8 +74,6 @@ def internal_error(error):
 def setup_db():
     with app.app_context():
         db.create_all()
-        
-        # create admin if not exists
         admin = User.query.filter_by(role='admin').first()
         if not admin:
             admin = User(

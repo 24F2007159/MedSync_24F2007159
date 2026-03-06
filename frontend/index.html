@@ -1294,8 +1294,411 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Our app -->
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script>
+    // ===== API.JS =====
+    const API_BASE = '/api';
+
+    function getToken() {
+        return localStorage.getItem('medsync_token');
+    }
+
+    function getHeaders() {
+        const token = getToken();
+        return {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+        };
+    }
+
+    async function apiCall(method, endpoint, data = null) {
+        const options = {
+            method,
+            headers: getHeaders()
+        };
+        if (data) {
+            options.body = JSON.stringify(data);
+        }
+        const response = await fetch(`${API_BASE}${endpoint}`, options);
+        return response.json();
+    }
+
+    const api = {
+        login: (data) => apiCall('POST', '/auth/login', data),
+        register: (data) => apiCall('POST', '/auth/register', data),
+        getAdminDashboard: () => apiCall('GET', '/admin/dashboard'),
+        getDoctors: (search='') => apiCall('GET', `/admin/doctors?search=${search}`),
+        addDoctor: (data) => apiCall('POST', '/admin/doctors', data),
+        toggleDoctorStatus: (id) => apiCall('PUT', `/admin/doctors/${id}/blacklist`),
+        getPatients: () => apiCall('GET', '/admin/patients'),
+        togglePatientStatus: (id) => apiCall('PUT', `/admin/patients/${id}/blacklist`),
+        getAllAppointments: () => apiCall('GET', '/admin/appointments'),
+        getDepartmentsAdmin: () => apiCall('GET', '/admin/departments'),
+        getDoctorDashboard: () => apiCall('GET', '/doctor/dashboard'),
+        getDoctorAppointments: () => apiCall('GET', '/doctor/appointments'),
+        updateAppointmentStatus: (id, status) => apiCall('PUT', `/doctor/appointments/${id}/status`, {status}),
+        addTreatment: (id, data) => apiCall('POST', `/doctor/appointments/${id}/treatment`, data),
+        getDoctorPatients: () => apiCall('GET', '/doctor/patients'),
+        getAvailability: () => apiCall('GET', '/doctor/availability'),
+        setAvailability: (data) => apiCall('POST', '/doctor/availability', data),
+        getPatientDashboard: () => apiCall('GET', '/patient/dashboard'),
+        getDepartments: () => apiCall('GET', '/patient/departments'),
+        getAvailableSlots: (doctorId, date) => apiCall('GET', `/patient/available-slots?doctor_id=${doctorId}&date=${date}`),
+        bookAppointment: (data) => apiCall('POST', '/patient/appointments', data),
+        getPatientAppointments: () => apiCall('GET', '/patient/appointments'),
+        cancelAppointment: (id) => apiCall('PUT', `/patient/appointments/${id}/cancel`),
+        getPatientHistory: () => apiCall('GET', '/patient/history'),
+        updatePatientProfile: (data) => apiCall('PUT', '/patient/profile', data),
+        exportHistory: () => apiCall('POST', '/patient/export'),
+    };
+    </script>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+    // ===== APP.JS =====
+    const { createApp } = Vue;
+
+    createApp({
+        data() {
+            return {
+                currentPage: 'home',
+                loading: false,
+                error: null,
+                toast: { show: false, message: '', type: 'success' },
+                currentUser: {},
+                loginForm: { username: '', password: '' },
+                registerForm: { username: '', email: '', password: '', name: '', phone: '', age: null, gender: '', blood_group: '' },
+                adminTab: 'dashboard',
+                adminStats: {},
+                doctors: [],
+                patients: [],
+                allAppointments: [],
+                departments: [],
+                showAddDoctorModal: false,
+                newDoctor: { username: '', email: '', name: '', specialization: '', qualification: '', experience: 0, consultation_fee: 0, phone: '', password: '' },
+                doctorTab: 'dashboard',
+                doctorStats: {},
+                doctorAppointments: [],
+                doctorPatients: [],
+                availabilitySlots: [],
+                showTreatmentModal: false,
+                selectedAppointment: null,
+                treatmentForm: { diagnosis: '', prescription: '', notes: '', next_visit: '' },
+                patientTab: 'book',
+                patientStats: { upcoming_appointments: 0, total_appointments: 0, doctors_visited: 0 },
+                patientAppointments: [],
+                patientHistory: [],
+                patientProfile: {},
+                bookingStep: 1,
+                selectedDept: null,
+                selectedDoctor: null,
+                selectedDate: '',
+                selectedSlot: null,
+                timeSlots: [],
+                bookingNotes: '',
+                minDate: new Date().toISOString().split('T')[0],
+            };
+        },
+
+        mounted() {
+            const token = localStorage.getItem('medsync_token');
+            const role = localStorage.getItem('medsync_role');
+            const username = localStorage.getItem('medsync_username');
+            if (token && role) {
+                this.currentUser = { username, role };
+                this.currentPage = role;
+                this.loadInitialData(role);
+            }
+        },
+
+        methods: {
+            showToast(message, type = 'success') {
+                this.toast = { show: true, message, type };
+                setTimeout(() => { this.toast.show = false; }, 3000);
+            },
+
+            async login() {
+                if (!this.loginForm.username || !this.loginForm.password) {
+                    this.error = 'Please enter username and password';
+                    return;
+                }
+                this.loading = true;
+                this.error = null;
+                try {
+                    const res = await api.login(this.loginForm);
+                    if (res.success) {
+                        localStorage.setItem('medsync_token', res.data.token);
+                        localStorage.setItem('medsync_role', res.data.role);
+                        localStorage.setItem('medsync_username', res.data.username);
+                        this.currentUser = { username: res.data.username, role: res.data.role };
+                        this.currentPage = res.data.role;
+                        this.loadInitialData(res.data.role);
+                        this.showToast(`Welcome back, ${res.data.username}!`);
+                    } else {
+                        this.error = res.message;
+                    }
+                } catch (e) {
+                    this.error = 'Connection error. Please try again.';
+                }
+                this.loading = false;
+            },
+
+            async register() {
+                if (!this.registerForm.name || !this.registerForm.username || !this.registerForm.email || !this.registerForm.password) {
+                    this.error = 'Please fill in all required fields';
+                    return;
+                }
+                this.loading = true;
+                this.error = null;
+                try {
+                    const res = await api.register(this.registerForm);
+                    if (res.success) {
+                        this.showToast('Registration successful! Please login.');
+                        this.currentPage = 'login';
+                    } else {
+                        this.error = res.message;
+                    }
+                } catch (e) {
+                    this.error = 'Connection error. Please try again.';
+                }
+                this.loading = false;
+            },
+
+            logout() {
+                localStorage.clear();
+                this.currentUser = {};
+                this.currentPage = 'home';
+                this.showToast('Logged out successfully');
+            },
+
+            loadInitialData(role) {
+                if (role === 'admin') {
+                    this.loadAdminDashboard();
+                } else if (role === 'doctor') {
+                    this.loadDoctorDashboard();
+                } else if (role === 'patient') {
+                    this.loadPatientDashboard();
+                    this.loadDepartments();
+                }
+            },
+
+            async loadAdminDashboard() {
+                const res = await api.getAdminDashboard();
+                if (res.success) this.adminStats = res.data;
+            },
+
+            async loadDoctors() {
+                const res = await api.getDoctors();
+                if (res.success) this.doctors = res.data.doctors;
+            },
+
+            async addDoctor() {
+                const res = await api.addDoctor(this.newDoctor);
+                if (res.success) {
+                    this.showToast('Doctor added successfully!');
+                    this.showAddDoctorModal = false;
+                    this.loadDoctors();
+                    this.newDoctor = { username: '', email: '', name: '', specialization: '', qualification: '', experience: 0, consultation_fee: 0, phone: '', password: '' };
+                } else {
+                    this.showToast(res.message, 'danger');
+                }
+            },
+
+            async toggleDoctorStatus(doc) {
+                const res = await api.toggleDoctorStatus(doc.id);
+                if (res.success) {
+                    this.showToast(res.message);
+                    this.loadDoctors();
+                }
+            },
+
+            async loadPatients() {
+                const res = await api.getPatients();
+                if (res.success) this.patients = res.data.patients;
+            },
+
+            async togglePatientStatus(pat) {
+                const res = await api.togglePatientStatus(pat.id);
+                if (res.success) {
+                    this.showToast(res.message);
+                    this.loadPatients();
+                }
+            },
+
+            async loadAllAppointments() {
+                const res = await api.getAllAppointments();
+                if (res.success) this.allAppointments = res.data.appointments;
+            },
+
+            async loadDepartments() {
+                const res = await api.getDepartments();
+                if (res.success) this.departments = res.data.departments;
+            },
+
+            async loadDoctorDashboard() {
+                const res = await api.getDoctorDashboard();
+                if (res.success) this.doctorStats = res.data;
+            },
+
+            async loadDoctorAppointments() {
+                const res = await api.getDoctorAppointments();
+                if (res.success) this.doctorAppointments = res.data.appointments;
+            },
+
+            async updateAppointmentStatus(id, status) {
+                const res = await api.updateAppointmentStatus(id, status);
+                if (res.success) {
+                    this.showToast(`Appointment marked as ${status}`);
+                    this.loadDoctorAppointments();
+                }
+            },
+
+            openTreatmentModal(apt) {
+                this.selectedAppointment = apt;
+                this.treatmentForm = { diagnosis: '', prescription: '', notes: '', next_visit: '' };
+                this.showTreatmentModal = true;
+            },
+
+            async saveTreatment() {
+                if (!this.treatmentForm.diagnosis) {
+                    this.showToast('Diagnosis is required', 'danger');
+                    return;
+                }
+                const res = await api.addTreatment(this.selectedAppointment.id, this.treatmentForm);
+                if (res.success) {
+                    this.showToast('Treatment saved successfully!');
+                    this.showTreatmentModal = false;
+                    this.loadDoctorAppointments();
+                } else {
+                    this.showToast(res.message, 'danger');
+                }
+            },
+
+            async loadDoctorPatients() {
+                const res = await api.getDoctorPatients();
+                if (res.success) this.doctorPatients = res.data.patients;
+            },
+
+            async loadAvailability() {
+                const res = await api.getAvailability();
+                const slots = [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date();
+                    d.setDate(d.getDate() + i);
+                    const dateStr = d.toISOString().split('T')[0];
+                    const morningSlot = res.success ? res.data.availability.find(
+                        a => a.availability_date === dateStr && a.slot_type === 'morning'
+                    ) : null;
+                    const eveningSlot = res.success ? res.data.availability.find(
+                        a => a.availability_date === dateStr && a.slot_type === 'evening'
+                    ) : null;
+                    slots.push({
+                        date: dateStr,
+                        morning: morningSlot ? morningSlot.is_available : false,
+                        evening: eveningSlot ? eveningSlot.is_available : false
+                    });
+                }
+                this.availabilitySlots = slots;
+            },
+
+            async saveAvailability() {
+                const res = await api.setAvailability({ availability: this.availabilitySlots });
+                if (res.success) {
+                    this.showToast('Availability saved successfully!');
+                }
+            },
+
+            async loadPatientDashboard() {
+                const res = await api.getPatientDashboard();
+                if (res.success) {
+                    this.patientStats = res.data;
+                    this.patientProfile = res.data.patient;
+                }
+            },
+
+            selectDepartment(dept) {
+                this.selectedDept = dept;
+                this.bookingStep = 2;
+            },
+
+            selectDoctor(doc) {
+                this.selectedDoctor = doc;
+                this.bookingStep = 3;
+            },
+
+            async loadTimeSlots() {
+                if (!this.selectedDate) return;
+                const res = await api.getAvailableSlots(this.selectedDoctor.id, this.selectedDate);
+                if (res.success) {
+                    this.timeSlots = res.data.slots;
+                    this.selectedSlot = null;
+                }
+            },
+
+            selectSlot(slot) {
+                this.selectedSlot = slot;
+            },
+
+            async confirmBooking() {
+                this.loading = true;
+                const res = await api.bookAppointment({
+                    doctor_id: this.selectedDoctor.id,
+                    appointment_date: this.selectedDate,
+                    appointment_time: this.selectedSlot.time,
+                    notes: this.bookingNotes
+                });
+                if (res.success) {
+                    this.showToast('Appointment booked successfully!');
+                    this.bookingStep = 1;
+                    this.selectedDept = null;
+                    this.selectedDoctor = null;
+                    this.selectedDate = '';
+                    this.selectedSlot = null;
+                    this.bookingNotes = '';
+                    this.loadPatientDashboard();
+                } else {
+                    this.showToast(res.message, 'danger');
+                }
+                this.loading = false;
+            },
+
+            async loadPatientAppointments() {
+                const res = await api.getPatientAppointments();
+                if (res.success) this.patientAppointments = res.data.appointments;
+            },
+
+            async cancelAppointment(id) {
+                const res = await api.cancelAppointment(id);
+                if (res.success) {
+                    this.showToast('Appointment cancelled');
+                    this.loadPatientAppointments();
+                    this.loadPatientDashboard();
+                }
+            },
+
+            async loadPatientHistory() {
+                const res = await api.getPatientHistory();
+                if (res.success) this.patientHistory = res.data.treatments;
+            },
+
+            async updateProfile() {
+                const res = await api.updatePatientProfile(this.patientProfile);
+                if (res.success) {
+                    this.showToast('Profile updated successfully!');
+                }
+            },
+
+            async exportHistory() {
+                const res = await api.exportHistory();
+                if (res.success) {
+                    this.showToast('Export started! You will be notified when ready.');
+                } else {
+                    this.showToast('Export failed - Celery may not be running', 'danger');
+                }
+            },
+        }
+    }).mount('#app');
+    </script>
 </body>
 </html>
