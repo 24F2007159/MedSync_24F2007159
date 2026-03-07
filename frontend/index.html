@@ -1239,11 +1239,16 @@
                                             }">{{ apt.status }}</span>
                                         </td>
                                         <td>
-                                            <button v-if="apt.status === 'booked'"
-                                                    class="btn btn-sm btn-outline-danger"
-                                                    @click="cancelAppointment(apt.id)">
-                                                <i class="bi bi-x-circle"></i> Cancel
-                                            </button>
+                                            <template v-if="apt.status === 'booked'">
+                                                <button class="btn btn-sm btn-outline-warning me-1"
+                                                        @click="openRescheduleModal(apt)">
+                                                    <i class="bi bi-calendar2-check"></i> Reschedule
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger"
+                                                        @click="cancelAppointment(apt.id)">
+                                                    <i class="bi bi-x-circle"></i> Cancel
+                                                </button>
+                                            </template>
                                         </td>
                                     </tr>
                                 </tbody>
@@ -1399,6 +1404,52 @@
                         <button class="btn btn-secondary" @click="showTreatmentModal = false">Cancel</button>
                         <button class="btn btn-primary" @click="saveTreatment">
                             <i class="bi bi-save"></i> Save Treatment
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- reschedule appointment modal -->
+        <div v-if="showRescheduleModal" class="modal d-block" style="background: rgba(0,0,0,0.5); z-index: 9999;">
+            <div class="modal-dialog">
+                <div class="modal-content" style="border-radius: 16px;">
+                    <div class="modal-header">
+                        <h5 class="modal-title fw-bold">
+                            <i class="bi bi-calendar2-check text-warning"></i> Reschedule Appointment
+                        </h5>
+                        <button class="btn-close" @click="showRescheduleModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div v-if="rescheduleTarget" class="alert alert-light border mb-3">
+                            <strong>Doctor:</strong> {{ rescheduleTarget.doctor ? rescheduleTarget.doctor.name : 'N/A' }}<br>
+                            <strong>Current:</strong> {{ rescheduleTarget.appointment_date }} at {{ rescheduleTarget.appointment_time }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">New Date</label>
+                            <input type="date" class="form-control" v-model="rescheduleDate"
+                                   :min="minDate" @change="loadRescheduleSlots">
+                        </div>
+                        <div v-if="rescheduleDate && rescheduleSlots.length === 0" class="text-muted small">
+                            No available slots for this date.
+                        </div>
+                        <div v-if="rescheduleSlots.length > 0" class="mb-3">
+                            <label class="form-label fw-semibold">Select Time Slot</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button v-for="slot in rescheduleSlots" :key="slot.time"
+                                        class="btn btn-sm"
+                                        :class="rescheduleSlot && rescheduleSlot.time === slot.time ? 'btn-warning' : 'btn-outline-warning'"
+                                        @click="rescheduleSlot = slot">
+                                    {{ slot.display }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @click="showRescheduleModal = false">Cancel</button>
+                        <button class="btn btn-warning" @click="confirmReschedule"
+                                :disabled="!rescheduleSlot">
+                            <i class="bi bi-check-circle"></i> Confirm Reschedule
                         </button>
                     </div>
                 </div>

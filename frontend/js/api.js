@@ -57,6 +57,7 @@ const api = {
     bookAppointment: (data) => apiCall('POST', '/patient/appointments', data),
     getPatientAppointments: () => apiCall('GET', '/patient/appointments'),
     cancelAppointment: (id) => apiCall('PUT', `/patient/appointments/${id}/cancel`),
+    rescheduleAppointment: (id, data) => apiCall('PUT', `/patient/appointments/${id}/reschedule`, data),
     getPatientHistory: () => apiCall('GET', '/patient/history'),
     updatePatientProfile: (data) => apiCall('PUT', '/patient/profile', data),
     exportHistory: () => apiCall('POST', '/patient/export'),

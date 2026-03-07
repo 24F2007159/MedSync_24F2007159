@@ -14,6 +14,11 @@ const patientData = {
     timeSlots: [],
     bookingNotes: '',
     minDate: new Date().toISOString().split('T')[0],
+    showRescheduleModal: false,
+    rescheduleTarget: null,
+    rescheduleDate: '',
+    rescheduleSlot: null,
+    rescheduleSlots: [],
 };
 
 const patientMethods = {
@@ -86,6 +91,42 @@ const patientMethods = {
             this.showToast('Appointment cancelled');
             this.loadPatientAppointments();
             this.loadPatientDashboard();
+        }
+    },
+
+    openRescheduleModal(apt) {
+        this.rescheduleTarget = apt;
+        this.rescheduleDate = '';
+        this.rescheduleSlot = null;
+        this.rescheduleSlots = [];
+        this.showRescheduleModal = true;
+    },
+
+    async loadRescheduleSlots() {
+        if (!this.rescheduleDate) return;
+        const res = await api.getAvailableSlots(this.rescheduleTarget.doctor.id, this.rescheduleDate);
+        if (res.success) {
+            this.rescheduleSlots = res.data.slots.filter(s => s.status === 'available');
+            this.rescheduleSlot = null;
+        }
+    },
+
+    async confirmReschedule() {
+        if (!this.rescheduleDate || !this.rescheduleSlot) {
+            this.showToast('Please select a new date and time slot', 'danger');
+            return;
+        }
+        const res = await api.rescheduleAppointment(this.rescheduleTarget.id, {
+            appointment_date: this.rescheduleDate,
+            appointment_time: this.rescheduleSlot.time
+        });
+        if (res.success) {
+            this.showToast('Appointment rescheduled successfully!');
+            this.showRescheduleModal = false;
+            this.loadPatientAppointments();
+            this.loadPatientDashboard();
+        } else {
+            this.showToast(res.message, 'danger');
         }
     },
 
