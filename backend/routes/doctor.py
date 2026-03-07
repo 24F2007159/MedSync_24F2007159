@@ -207,12 +207,18 @@ def get_patient_history(patient_id):
         doctor_id=doctor.id,
         patient_id=patient_id
     ).order_by(Appointment.appointment_date.desc()).all()
-    
+
+    apts_data = []
+    for a in appointments:
+        apt_dict = a.to_dict()
+        apt_dict['treatment'] = a.treatment.to_dict() if a.treatment else None
+        apts_data.append(apt_dict)
+
     return jsonify({
         'success': True,
         'data': {
             'patient': patient.to_dict(),
-            'appointments': [a.to_dict() for a in appointments]
+            'appointments': apts_data
         }
     })
 

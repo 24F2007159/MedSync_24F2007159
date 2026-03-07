@@ -601,6 +601,30 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- charts row -->
+                    <div class="row g-4">
+                        <div class="col-md-5">
+                            <div class="card">
+                                <div class="card-header">
+                                    <i class="bi bi-pie-chart text-primary"></i> Appointments by Status
+                                </div>
+                                <div class="card-body d-flex justify-content-center" style="height:280px;">
+                                    <canvas id="apptStatusChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-7">
+                            <div class="card">
+                                <div class="card-header">
+                                    <i class="bi bi-bar-chart text-primary"></i> Doctors per Department
+                                </div>
+                                <div class="card-body" style="height:280px;">
+                                    <canvas id="deptChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- doctors tab -->
@@ -937,9 +961,13 @@
                                     <p class="text-muted mb-1">
                                         <i class="bi bi-person"></i> {{ pat.age }} yrs / {{ pat.gender }}
                                     </p>
-                                    <p class="text-muted mb-0">
+                                    <p class="text-muted mb-2">
                                         <i class="bi bi-droplet"></i> {{ pat.blood_group }}
                                     </p>
+                                    <button class="btn btn-sm btn-outline-primary w-100"
+                                            @click="openPatientHistory(pat)">
+                                        <i class="bi bi-clock-history"></i> View History
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1303,6 +1331,41 @@
             </div>
         </div>
 
+        <!-- patient history modal (doctor view) -->
+        <div v-if="showPatientHistoryModal" class="modal d-block" style="background: rgba(0,0,0,0.5); z-index: 9999;">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content" style="border-radius: 16px;">
+                    <div class="modal-header">
+                        <h5 class="modal-title fw-bold">
+                            <i class="bi bi-clock-history text-primary"></i>
+                            Patient History — {{ selectedPatient ? selectedPatient.name : '' }}
+                        </h5>
+                        <button class="btn-close" @click="showPatientHistoryModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div v-if="patientHistoryRecords.length === 0" class="text-center py-4 text-muted">
+                            No treatment records found for this patient.
+                        </div>
+                        <div class="card mb-3 border" v-for="record in patientHistoryRecords" :key="record.id">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <span class="badge bg-primary">{{ record.appointment_date }}</span>
+                                    <small class="text-muted">{{ record.appointment_time }}</small>
+                                </div>
+                                <p class="mb-1"><strong>Diagnosis:</strong> {{ record.diagnosis }}</p>
+                                <p class="mb-1" v-if="record.prescription"><strong>Prescription:</strong> {{ record.prescription }}</p>
+                                <p class="mb-1" v-if="record.notes"><strong>Notes:</strong> {{ record.notes }}</p>
+                                <p class="mb-0" v-if="record.next_visit"><strong>Next Visit:</strong> {{ record.next_visit }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @click="showPatientHistoryModal = false">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- treatment modal -->
         <div v-if="showTreatmentModal" class="modal d-block" style="background: rgba(0,0,0,0.5); z-index: 9999;">
             <div class="modal-dialog modal-lg">
@@ -1406,6 +1469,8 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
     <script>
     // ===== API.JS =====
@@ -1439,6 +1504,7 @@
         login: (data) => apiCall('POST', '/auth/login', data),
         register: (data) => apiCall('POST', '/auth/register', data),
         getAdminDashboard: () => apiCall('GET', '/admin/dashboard'),
+        getAdminChartData: () => apiCall('GET', '/admin/chart-data'),
         getDoctors: (search='') => apiCall('GET', `/admin/doctors?search=${search}`),
         addDoctor: (data) => apiCall('POST', '/admin/doctors', data),
         toggleDoctorStatus: (id) => apiCall('PUT', `/admin/doctors/${id}/blacklist`),
@@ -1451,6 +1517,7 @@
         updateAppointmentStatus: (id, status) => apiCall('PUT', `/doctor/appointments/${id}/status`, {status}),
         addTreatment: (id, data) => apiCall('POST', `/doctor/appointments/${id}/treatment`, data),
         getDoctorPatients: () => apiCall('GET', '/doctor/patients'),
+        getPatientHistory: (patientId) => apiCall('GET', `/doctor/patients/${patientId}/history`),
         getAvailability: () => apiCall('GET', '/doctor/availability'),
         setAvailability: (data) => apiCall('POST', '/doctor/availability', data),
         getPatientDashboard: () => apiCall('GET', '/patient/dashboard'),
@@ -1497,6 +1564,9 @@
                 showTreatmentModal: false,
                 selectedAppointment: null,
                 treatmentForm: { diagnosis: '', prescription: '', notes: '', next_visit: '' },
+                showPatientHistoryModal: false,
+                selectedPatient: null,
+                patientHistoryRecords: [],
                 patientTab: 'book',
                 patientStats: { upcoming_appointments: 0, total_appointments: 0, doctors_visited: 0 },
                 patientAppointments: [],
@@ -1531,8 +1601,8 @@
             },
 
             async login() {
-                if (!this.loginForm.username || !this.loginForm.password) {
-                    this.error = 'Please enter username and password';
+                if (!this.loginForm.username.trim() || !this.loginForm.password.trim()) {
+                    this.error = 'Username and password are required';
                     return;
                 }
                 this.loading = true;
@@ -1557,8 +1627,17 @@
             },
 
             async register() {
-                if (!this.registerForm.name || !this.registerForm.username || !this.registerForm.email || !this.registerForm.password) {
-                    this.error = 'Please fill in all required fields';
+                if (!this.registerForm.name.trim() || !this.registerForm.username.trim() || !this.registerForm.email.trim() || !this.registerForm.password.trim()) {
+                    this.error = 'Name, username, email and password are required';
+                    return;
+                }
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(this.registerForm.email)) {
+                    this.error = 'Please enter a valid email address';
+                    return;
+                }
+                if (this.registerForm.password.length < 6) {
+                    this.error = 'Password must be at least 6 characters';
                     return;
                 }
                 this.loading = true;
@@ -1598,6 +1677,60 @@
             async loadAdminDashboard() {
                 const res = await api.getAdminDashboard();
                 if (res.success) this.adminStats = res.data;
+                const chartRes = await api.getAdminChartData();
+                if (chartRes.success) {
+                    this.$nextTick(() => this.renderAdminCharts(chartRes.data));
+                }
+            },
+
+            renderAdminCharts(data) {
+                // destroy old charts if any
+                if (this._apptChart) this._apptChart.destroy();
+                if (this._deptChart) this._deptChart.destroy();
+
+                const apptCtx = document.getElementById('apptStatusChart');
+                if (apptCtx) {
+                    this._apptChart = new Chart(apptCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: data.appointments_by_status.labels,
+                            datasets: [{
+                                data: data.appointments_by_status.values,
+                                backgroundColor: ['#0d6efd', '#198754', '#dc3545'],
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'bottom' } }
+                        }
+                    });
+                }
+
+                const deptCtx = document.getElementById('deptChart');
+                if (deptCtx) {
+                    this._deptChart = new Chart(deptCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: data.doctors_per_dept.labels,
+                            datasets: [{
+                                label: 'Doctors',
+                                data: data.doctors_per_dept.values,
+                                backgroundColor: '#0d6efd',
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                y: { beginAtZero: true, ticks: { stepSize: 1 } }
+                            }
+                        }
+                    });
+                }
             },
 
             async loadDoctors(search = '') {
@@ -1620,6 +1753,15 @@
             },
 
             async addDoctor() {
+                if (!this.newDoctor.username.trim() || !this.newDoctor.email.trim() || !this.newDoctor.name.trim() || !this.newDoctor.specialization.trim()) {
+                    this.showToast('Username, email, name and specialization are required', 'danger');
+                    return;
+                }
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(this.newDoctor.email)) {
+                    this.showToast('Please enter a valid email address', 'danger');
+                    return;
+                }
                 const res = await api.addDoctor(this.newDoctor);
                 if (res.success) {
                     this.showToast('Doctor added successfully!');
@@ -1708,6 +1850,30 @@
                 if (res.success) this.doctorPatients = res.data.patients;
             },
 
+            async openPatientHistory(patient) {
+                this.selectedPatient = patient;
+                this.patientHistoryRecords = [];
+                this.showPatientHistoryModal = true;
+                const res = await api.getPatientHistory(patient.id);
+                if (res.success) {
+                    const records = [];
+                    for (const apt of res.data.appointments) {
+                        if (apt.treatment) {
+                            records.push({
+                                id: apt.id,
+                                appointment_date: apt.appointment_date,
+                                appointment_time: apt.appointment_time,
+                                diagnosis: apt.treatment.diagnosis,
+                                prescription: apt.treatment.prescription,
+                                notes: apt.treatment.notes,
+                                next_visit: apt.treatment.next_visit
+                            });
+                        }
+                    }
+                    this.patientHistoryRecords = records;
+                }
+            },
+
             async loadAvailability() {
                 const res = await api.getAvailability();
                 const slots = [];
@@ -1769,6 +1935,10 @@
             },
 
             async confirmBooking() {
+                if (!this.selectedDate || !this.selectedSlot) {
+                    this.showToast('Please select a date and time slot', 'danger');
+                    return;
+                }
                 this.loading = true;
                 const res = await api.bookAppointment({
                     doctor_id: this.selectedDoctor.id,

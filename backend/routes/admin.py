@@ -218,6 +218,36 @@ def get_departments():
         'data': {'departments': [d.to_dict() for d in departments]}
     })
 
+# chart data for admin dashboard
+@admin_bp.route('/chart-data', methods=['GET'])
+@admin_required
+def get_chart_data():
+    booked = Appointment.query.filter_by(status='booked').count()
+    completed = Appointment.query.filter_by(status='completed').count()
+    cancelled = Appointment.query.filter_by(status='cancelled').count()
+
+    departments = Department.query.filter_by(is_active=True).all()
+    dept_labels = []
+    dept_counts = []
+    for dept in departments:
+        count = Doctor.query.filter_by(specialization=dept.name, is_active=True).count()
+        dept_labels.append(dept.name)
+        dept_counts.append(count)
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'appointments_by_status': {
+                'labels': ['Booked', 'Completed', 'Cancelled'],
+                'values': [booked, completed, cancelled]
+            },
+            'doctors_per_dept': {
+                'labels': dept_labels,
+                'values': dept_counts
+            }
+        }
+    })
+
 # add department
 @admin_bp.route('/departments', methods=['POST'])
 @admin_required
