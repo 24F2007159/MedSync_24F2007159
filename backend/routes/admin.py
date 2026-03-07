@@ -154,9 +154,22 @@ def toggle_doctor_status(doctor_id):
 @admin_bp.route('/patients', methods=['GET'])
 @admin_required
 def get_patients():
+    from flask import current_app
+    import json
     search = request.args.get('search', '')
+    cache = current_app.config.get('CACHE')
+    cache_key = f'admin_patients_{search}'
+
+    if cache:
+        try:
+            cached = cache.get(cache_key)
+            if cached:
+                return jsonify({'success': True, 'data': {'patients': json.loads(cached)}})
+        except:
+            pass
+
     patients = Patient.query.join(User)
-    
+
     if search:
         patients = patients.filter(
             db.or_(
@@ -165,11 +178,19 @@ def get_patients():
                 User.email.ilike(f'%{search}%')
             )
         )
-    
+
     patients = patients.all()
+    data = [p.to_dict() for p in patients]
+
+    if cache:
+        try:
+            cache.setex(cache_key, 300, json.dumps(data))
+        except:
+            pass
+
     return jsonify({
         'success': True,
-        'data': {'patients': [p.to_dict() for p in patients]}
+        'data': {'patients': data}
     })
 
 # blacklist/activate patient
@@ -182,7 +203,17 @@ def toggle_patient_status(patient_id):
     
     patient.is_blacklisted = not patient.is_blacklisted
     db.session.commit()
-    
+
+    # invalidate patient list cache
+    from flask import current_app
+    cache = current_app.config.get('CACHE')
+    if cache:
+        try:
+            for key in cache.scan_iter('admin_patients_*'):
+                cache.delete(key)
+        except:
+            pass
+
     status = 'blacklisted' if patient.is_blacklisted else 'activated'
     return jsonify({
         'success': True,
