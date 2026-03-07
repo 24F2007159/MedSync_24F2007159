@@ -609,9 +609,16 @@
                         <h4 class="fw-bold mb-0">
                             <i class="bi bi-person-badge text-primary"></i> Manage Doctors
                         </h4>
-                        <button class="btn btn-primary" @click="showAddDoctorModal = true">
-                            <i class="bi bi-plus-circle"></i> Add Doctor
-                        </button>
+                        <div class="d-flex gap-2">
+                            <div class="input-group" style="width:260px;">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control" placeholder="Search by name or specialization"
+                                       v-model="doctorSearch" @input="searchDoctors">
+                            </div>
+                            <button class="btn btn-primary" @click="showAddDoctorModal = true">
+                                <i class="bi bi-plus-circle"></i> Add Doctor
+                            </button>
+                        </div>
                     </div>
 
                     <div class="card">
@@ -658,9 +665,16 @@
 
                 <!-- patients tab -->
                 <div v-if="adminTab === 'patients'">
-                    <h4 class="fw-bold mb-4">
-                        <i class="bi bi-people text-primary"></i> Manage Patients
-                    </h4>
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h4 class="fw-bold mb-0">
+                            <i class="bi bi-people text-primary"></i> Manage Patients
+                        </h4>
+                        <div class="input-group" style="width:280px;">
+                            <span class="input-group-text"><i class="bi bi-search"></i></span>
+                            <input type="text" class="form-control" placeholder="Search by name, phone or email"
+                                   v-model="patientSearch" @input="searchPatients">
+                        </div>
+                    </div>
                     <div class="card">
                         <div class="card-body p-0">
                             <table class="table table-hover mb-0">
@@ -1428,7 +1442,7 @@
         getDoctors: (search='') => apiCall('GET', `/admin/doctors?search=${search}`),
         addDoctor: (data) => apiCall('POST', '/admin/doctors', data),
         toggleDoctorStatus: (id) => apiCall('PUT', `/admin/doctors/${id}/blacklist`),
-        getPatients: () => apiCall('GET', '/admin/patients'),
+        getPatients: (search='') => apiCall('GET', `/admin/patients?search=${search}`),
         togglePatientStatus: (id) => apiCall('PUT', `/admin/patients/${id}/blacklist`),
         getAllAppointments: () => apiCall('GET', '/admin/appointments'),
         getDepartmentsAdmin: () => apiCall('GET', '/admin/departments'),
@@ -1473,6 +1487,8 @@
                 departments: [],
                 showAddDoctorModal: false,
                 newDoctor: { username: '', email: '', name: '', specialization: '', qualification: '', experience: 0, consultation_fee: 0, phone: '', password: '' },
+                doctorSearch: '',
+                patientSearch: '',
                 doctorTab: 'dashboard',
                 doctorStats: {},
                 doctorAppointments: [],
@@ -1584,9 +1600,23 @@
                 if (res.success) this.adminStats = res.data;
             },
 
-            async loadDoctors() {
-                const res = await api.getDoctors();
+            async loadDoctors(search = '') {
+                if (search === '') this.doctorSearch = '';
+                const res = await api.getDoctors(search);
                 if (res.success) this.doctors = res.data.doctors;
+            },
+
+            searchDoctors() {
+                this.loadDoctors(this.doctorSearch);
+            },
+
+            searchPatients() {
+                this.loadPatientsFiltered(this.patientSearch);
+            },
+
+            async loadPatientsFiltered(search = '') {
+                const res = await api.getPatients(search);
+                if (res.success) this.patients = res.data.patients;
             },
 
             async addDoctor() {
@@ -1610,6 +1640,7 @@
             },
 
             async loadPatients() {
+                this.patientSearch = '';
                 const res = await api.getPatients();
                 if (res.success) this.patients = res.data.patients;
             },
@@ -1628,7 +1659,8 @@
             },
 
             async loadDepartments() {
-                const res = await api.getDepartments();
+                const isAdmin = this.currentUser.role === 'admin';
+                const res = isAdmin ? await api.getDepartmentsAdmin() : await api.getDepartments();
                 if (res.success) this.departments = res.data.departments;
             },
 
