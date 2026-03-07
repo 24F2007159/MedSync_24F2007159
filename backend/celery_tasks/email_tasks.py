@@ -102,14 +102,16 @@ def send_monthly_reports():
     app = create_app()
     with app.app_context():
         from datetime import date
-        from dateutil.relativedelta import relativedelta
         from models import Doctor, Appointment, Treatment
         from flask_mail import Mail, Message
 
         today = date.today()
         # report covers the previous full month
         first_of_this_month = today.replace(day=1)
-        first_of_last_month = first_of_this_month - relativedelta(months=1)
+        if first_of_this_month.month == 1:
+            first_of_last_month = first_of_this_month.replace(year=first_of_this_month.year - 1, month=12)
+        else:
+            first_of_last_month = first_of_this_month.replace(month=first_of_this_month.month - 1)
         last_of_last_month = first_of_this_month
 
         month_name = first_of_last_month.strftime('%B %Y')
