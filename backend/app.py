@@ -26,10 +26,10 @@ try:
     cache = redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
     cache.ping()
     app.config['CACHE'] = cache
-    print("✓ Redis connected")
+    print("[OK] Redis connected")
 except:
     app.config['CACHE'] = None
-    print("⚠ Redis not available - caching disabled")
+    print("[WARN] Redis not available - caching disabled")
 
 # register blueprints
 from models import User, Doctor, Patient, Appointment, Treatment, DoctorAvailability, Department
@@ -84,7 +84,7 @@ def setup_db():
             )
             db.session.add(admin)
             db.session.commit()
-            print('✓ Admin created: admin / admin123')
+            print('[OK] Admin created: admin / admin123')
 
 if __name__ == '__main__':
     setup_db()
