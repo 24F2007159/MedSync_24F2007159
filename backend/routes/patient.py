@@ -155,8 +155,24 @@ def get_available_slots():
         is_available=True
     ).first()
     
+    # check cache for this doctor+date combo
+    from flask import current_app
+    import json
+    cache = current_app.config.get('CACHE')
+    cache_key = f'slots_{doctor_id}_{date_str}'
+    if cache:
+        try:
+            cached = cache.get(cache_key)
+            if cached:
+                return jsonify({
+                    'success': True,
+                    'data': {'slots': json.loads(cached), 'date': apt_date.isoformat()}
+                })
+        except:
+            pass
+
     slots = []
-    
+
     def add_slots(start_hour, end_hour, slot_type):
         for h in range(start_hour, end_hour):
             slot_time = time(h, 0)
@@ -188,7 +204,14 @@ def get_available_slots():
         add_slots(9, 13, 'morning')
     if evening_avail:
         add_slots(15, 19, 'evening')
-    
+
+    # cache slots for 60 seconds
+    if cache:
+        try:
+            cache.setex(cache_key, 60, json.dumps(slots))
+        except:
+            pass
+
     return jsonify({
         'success': True,
         'data': {'slots': slots, 'date': apt_date.isoformat()}
@@ -292,7 +315,16 @@ def book_appointment():
     
     db.session.add(appointment)
     db.session.commit()
-    
+
+    # invalidate slot cache for this doctor+date
+    from flask import current_app
+    cache = current_app.config.get('CACHE')
+    if cache:
+        try:
+            cache.delete(f'slots_{data["doctor_id"]}_{data["appointment_date"]}')
+        except:
+            pass
+
     return jsonify({
         'success': True,
         'message': 'Appointment booked successfully!',
@@ -324,6 +356,111 @@ def get_appointments():
         'data': {'appointments': [a.to_dict() for a in appointments]}
     })
 
+# reschedule appointment
+@patient_bp.route('/appointments/<int:appointment_id>/reschedule', methods=['PUT'])
+@patient_required
+def reschedule_appointment(appointment_id):
+    user_id = get_current_user_id()
+    patient = Patient.query.filter_by(user_id=user_id).first()
+
+    if not patient:
+        return jsonify({'success': False, 'message': 'Patient profile not found'}), 404
+
+    appointment = Appointment.query.filter_by(
+        id=appointment_id,
+        patient_id=patient.id
+    ).first()
+
+    if not appointment:
+        return jsonify({'success': False, 'message': 'Appointment not found'}), 404
+
+    if appointment.status != 'booked':
+        return jsonify({'success': False, 'message': 'Can only reschedule booked appointments'}), 400
+
+    data = request.get_json()
+
+    if not data.get('appointment_date'):
+        return jsonify({'success': False, 'message': 'New date is required'}), 400
+    if not data.get('appointment_time'):
+        return jsonify({'success': False, 'message': 'New time is required'}), 400
+
+    try:
+        new_date = datetime.strptime(data['appointment_date'], '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid date format'}), 400
+
+    now = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    if new_date < now.date():
+        return jsonify({'success': False, 'message': 'Cannot reschedule to a past date'}), 400
+
+    try:
+        new_time = datetime.strptime(data['appointment_time'], '%H:%M').time()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid time format'}), 400
+
+    hour = new_time.hour
+    if 9 <= hour < 13:
+        slot_type = 'morning'
+    elif 15 <= hour < 19:
+        slot_type = 'evening'
+    else:
+        return jsonify({'success': False, 'message': 'Invalid time slot'}), 400
+
+    availability = DoctorAvailability.query.filter_by(
+        doctor_id=appointment.doctor_id,
+        availability_date=new_date,
+        slot_type=slot_type,
+        is_available=True
+    ).first()
+
+    if not availability:
+        return jsonify({'success': False, 'message': 'Doctor not available on this date'}), 400
+
+    # prevent double booking (exclude this appointment)
+    conflict_doctor = Appointment.query.filter(
+        Appointment.doctor_id == appointment.doctor_id,
+        Appointment.appointment_date == new_date,
+        Appointment.appointment_time == new_time,
+        Appointment.status == 'booked',
+        Appointment.id != appointment_id
+    ).first()
+
+    if conflict_doctor:
+        return jsonify({'success': False, 'message': 'This slot is already booked'}), 400
+
+    conflict_patient = Appointment.query.filter(
+        Appointment.patient_id == patient.id,
+        Appointment.appointment_date == new_date,
+        Appointment.appointment_time == new_time,
+        Appointment.status == 'booked',
+        Appointment.id != appointment_id
+    ).first()
+
+    if conflict_patient:
+        return jsonify({'success': False, 'message': 'You already have an appointment at this time'}), 400
+
+    old_date = appointment.appointment_date.isoformat()
+    doctor_id = appointment.doctor_id
+    appointment.appointment_date = new_date
+    appointment.appointment_time = new_time
+    appointment.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    from flask import current_app
+    cache = current_app.config.get('CACHE')
+    if cache:
+        try:
+            cache.delete(f'slots_{doctor_id}_{old_date}')
+            cache.delete(f'slots_{doctor_id}_{new_date.isoformat()}')
+        except:
+            pass
+
+    return jsonify({
+        'success': True,
+        'message': 'Appointment rescheduled successfully',
+        'data': {'appointment': appointment.to_dict()}
+    })
+
 # cancel appointment
 @patient_bp.route('/appointments/<int:appointment_id>/cancel', methods=['PUT'])
 @patient_required
@@ -345,10 +482,20 @@ def cancel_appointment(appointment_id):
     if appointment.status != 'booked':
         return jsonify({'success': False, 'message': 'Can only cancel booked appointments'}), 400
     
+    old_date = appointment.appointment_date.isoformat()
+    old_doctor_id = appointment.doctor_id
     appointment.status = 'cancelled'
     appointment.updated_at = datetime.utcnow()
     db.session.commit()
-    
+
+    from flask import current_app
+    cache = current_app.config.get('CACHE')
+    if cache:
+        try:
+            cache.delete(f'slots_{old_doctor_id}_{old_date}')
+        except:
+            pass
+
     return jsonify({
         'success': True,
         'message': 'Appointment cancelled successfully'
